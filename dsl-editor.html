@@ -511,14 +511,23 @@ function latestStyle(stack) {
   return null;
 }
 
+function activeSpan(stack) {
+  for (let i = stack.length - 1; i >= 0; i--) {
+    if (stack[i].kind === "raw") continue;
+    if (stack[i].kind === "span") return stack[i];
+    return null;
+  }
+  return null;
+}
+
 function appendParsedText(parts, stack, text, sourceStart) {
   if (!text) return;
 
-  const activeSpan = stack.length ? stack[stack.length - 1] : null;
-  if (activeSpan?.kind === "span") {
-    if (activeSpan.textStart == null) activeSpan.textStart = sourceStart;
-    activeSpan.text += text;
-    activeSpan.textEnd = sourceStart + text.length;
+  const span = activeSpan(stack);
+  if (span) {
+    if (span.textStart == null) span.textStart = sourceStart;
+    span.text += text;
+    span.textEnd = sourceStart + text.length;
     return;
   }
 
@@ -586,9 +595,14 @@ function parseLine(line, lineStart) {
           textStart: item.textStart ?? item.openingEnd,
           textEnd: item.textEnd ?? item.openingEnd
         });
+      } else if (item?.kind === "raw") {
+        appendParsedText(parts, stack, tag, absStart);
       }
     } else {
       appendParsedText(parts, stack, tag, absStart);
+      if (/^<[A-Za-z][A-Za-z0-9_:-]*\b[^>]*>$/.test(tag)) {
+        stack.push({ kind: "raw", sourceStart: absStart });
+      }
     }
 
     last = m.index + tag.length;
@@ -629,6 +643,30 @@ function textStyleCss(name) {
   return "";
 }
 
+function visibleChars(text) {
+  const chars = [];
+  const tagRegex = /<[^>\n]*>/g;
+  let last = 0;
+  let m;
+
+  while ((m = tagRegex.exec(text))) {
+    for (let k = last; k < m.index; k++) {
+      chars.push({ ch: text[k], k });
+    }
+    last = m.index + m[0].length;
+  }
+
+  for (let k = last; k < text.length; k++) {
+    chars.push({ ch: text[k], k });
+  }
+
+  return chars;
+}
+
+function visibleText(text) {
+  return visibleChars(text).map(({ ch }) => ch).join("");
+}
+
 function isSelectedPart(i, j) {
   return selected && selected.i === i && selected.j === j;
 }
@@ -644,17 +682,17 @@ function render() {
       if (p.type === "span") {
         const css = textStyleCss(p.textstyle);
         const cls = isSelectedPart(i, j) ? "selected" : "";
-        const base = p.text.split("").map(ch => `<span class="annotation-base-char">${escapeHtml(ch)}</span>`).join("");
+        const base = visibleChars(p.text).map(({ ch }) => `<span class="annotation-base-char">${escapeHtml(ch)}</span>`).join("");
 
         return `<span class="annotation-run ${cls}" data-i="${i}" data-j="${j}" style="${css}" onclick="edit(${i},${j})"><span class="annotation-base">${base}</span><span class="annotation-text" style="font-size:${escapeHtml(p.scale)}em">${escapeHtml(p.annotation)}</span></span>`;
       }
 
       if (p.type === "style") {
         const css = textStyleCss(p.tag);
-        return p.text.split("").map((ch, k) => charHtml(ch, i, j, k, css)).join("");
+        return visibleChars(p.text).map(({ ch, k }) => charHtml(ch, i, j, k, css)).join("");
       }
 
-      return p.text.split("").map((ch, k) => charHtml(ch, i, j, k, "")).join("");
+      return visibleChars(p.text).map(({ ch, k }) => charHtml(ch, i, j, k, "")).join("");
     }).join("");
 
     return `<div class="line">
@@ -693,7 +731,7 @@ function move(i, j, k) {
   const p = ast[i].parts[j];
   const s = Math.min(startPos.k, k);
   const e = Math.max(startPos.k, k);
-  selected = { i, j, start: s, end: e, text: p.text.slice(s, e + 1) };
+  selected = { i, j, start: s, end: e, text: visibleText(p.text.slice(s, e + 1)) };
   updatePreviewSelection();
   updateCodeHighlights();
 }
@@ -716,7 +754,7 @@ function end(event, i, j, k) {
   if (sk > k) [sk, k] = [k, sk];
 
   const p = ast[i].parts[j];
-  const text = p.text.slice(sk, k + 1);
+  const text = visibleText(p.text.slice(sk, k + 1));
   selected = { i, j, start: sk, end: k, text };
   openEditor(text, p);
   render();
@@ -763,8 +801,8 @@ function openEditor(t, part) {
 
 function edit(i, j) {
   const p = ast[i].parts[j];
-  selected = { i, j, start: 0, end: Math.max(0, p.text.length - 1), text: p.text };
-  openEditor(p.text, p);
+  selected = { i, j, start: 0, end: Math.max(0, p.text.length - 1), text: visibleText(p.text) };
+  openEditor(visibleText(p.text), p);
   render();
   updateCodeHighlights();
 }
@@ -777,27 +815,110 @@ function apply() {
   const p = ast[i]?.parts[j];
   if (!p) return;
 
-  const before = p.text.slice(0, start);
-  const target = p.text.slice(start, end + 1);
-  const after = p.text.slice(end + 1);
-  const arr = [];
-
-  if (before) arr.push(cloneTextPart(p, before));
-
-  const newSpanIndex = j + arr.length;
-  arr.push({
-    type: "span",
-    text: target,
-    annotation: ann.value,
-    textstyle: style.value,
-    scale: scale.value
-  });
-
-  if (after) arr.push(cloneTextPart(p, after));
+  const { parts: arr, firstSpanIndex } = splitPartForAnnotation(p, start, end);
+  if (firstSpanIndex == null) return;
 
   ast[i].parts.splice(j, 1, ...arr);
-  selected = { i, j: newSpanIndex, start: 0, end: Math.max(0, target.length - 1), text: target };
+  const newSpan = arr[firstSpanIndex];
+  selected = { i, j: j + firstSpanIndex, start: 0, end: Math.max(0, newSpan.text.length - 1), text: visibleText(newSpan.text) };
   sync();
+}
+
+function splitPartForAnnotation(p, start, end) {
+  const arr = [];
+  const tagRegex = /<[^>\n]*>/g;
+  const tagStack = [];
+  let last = 0;
+  let firstSpanIndex = null;
+  let m;
+
+  const pushPart = part => {
+    if (!part.text) return;
+
+    const lastPart = arr[arr.length - 1];
+    if (lastPart && canMergeParts(lastPart, part)) {
+      lastPart.text += part.text;
+      return;
+    }
+
+    arr.push(part);
+    if (part.type === "span" && firstSpanIndex == null) {
+      firstSpanIndex = arr.length - 1;
+    }
+  };
+
+  const pushPlainSegment = text => {
+    if (!text) return;
+
+    if (tagStack.length) {
+      const opens = tagStack.map(item => item.tag).join("");
+      const closes = tagStack.map(() => "</>").join("");
+      pushPart({ text: opens + text + closes });
+      return;
+    }
+
+    pushPart(cloneTextPart(p, text));
+  };
+
+  const pushVisibleSegment = (text, sourceStart) => {
+    if (!text) return;
+
+    const sourceEnd = sourceStart + text.length;
+    const selectedStart = Math.max(start, sourceStart);
+    const selectedEnd = Math.min(end + 1, sourceEnd);
+
+    if (selectedStart > sourceStart) {
+      pushPlainSegment(text.slice(0, selectedStart - sourceStart));
+    }
+
+    if (selectedEnd > selectedStart) {
+      pushPart({
+        type: "span",
+        text: text.slice(selectedStart - sourceStart, selectedEnd - sourceStart),
+        annotation: ann.value,
+        textstyle: style.value,
+        scale: scale.value
+      });
+    }
+
+    if (selectedEnd < sourceEnd) {
+      pushPlainSegment(text.slice(selectedEnd - sourceStart));
+    }
+  };
+
+  while ((m = tagRegex.exec(p.text))) {
+    const tag = m[0];
+    pushVisibleSegment(p.text.slice(last, m.index), last);
+
+    if (tag === "</>") {
+      if (tagStack.length) {
+        tagStack.pop();
+      } else {
+        pushPart({ text: tag });
+      }
+    } else if (/^<[A-Za-z][A-Za-z0-9_:-]*\b[^>]*>$/.test(tag)) {
+      tagStack.push({ tag });
+    } else {
+      pushPart({ text: tag });
+    }
+
+    last = m.index + m[0].length;
+  }
+
+  pushVisibleSegment(p.text.slice(last), last);
+  return { parts: arr, firstSpanIndex };
+}
+
+function canMergeParts(a, b) {
+  if (a.type !== b.type) return false;
+  if (!a.type) return true;
+  if (a.type === "style") return a.tag === b.tag;
+  if (a.type === "span") {
+    return a.annotation === b.annotation
+      && a.textstyle === b.textstyle
+      && a.scale === b.scale;
+  }
+  return false;
 }
 
 function cloneTextPart(p, text) {
@@ -1086,7 +1207,7 @@ if (typeof ResizeObserver === "function") {
 }
 
 // 初始化
-code.value = "※現状、RedBold/BlueBold/Defultのみ対応。Yellow/Boldなどは対象外";
+code.value = "※カラー表示はRed/Blue/Defaultのみ、表記ルール自体各種<*>系タグを対応";
 saveHistory();
 ast = parse(code.value);
 render();
