@@ -1,0 +1,1097 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>ルビーエディター</title>
+
+<style>
+:root {
+  --font: "Meiryo", serif;
+  --ruby-space: 18px;
+  --text-row-height: 38px;
+  --row-height: calc(var(--ruby-space) + var(--text-row-height));
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  color: #1f2933;
+}
+
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #fff;
+}
+
+.header {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: #f2f4f7;
+  font-weight: bold;
+  border-bottom: 1px solid #cfd6df;
+}
+
+.header div {
+  padding: 8px 12px;
+}
+
+.header div + div {
+  border-left: 1px solid #cfd6df;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-bottom: 1px solid #d9dee6;
+  background: #fbfcfd;
+  font-size: 14px;
+}
+
+.toolbar select,
+.toolbar input,
+.editor select,
+.editor input {
+  height: 28px;
+  border: 1px solid #b9c2cf;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-family: var(--font);
+}
+
+.validation {
+  margin-left: auto;
+  color: #b42318;
+  font-size: 13px;
+}
+
+.main {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.panel {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel + .panel {
+  border-left: 1px solid #cfd6df;
+}
+
+.code-editor {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: #fff;
+}
+
+.code-backdrop,
+.code-input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  border: 0;
+  padding: 0 12px;
+  width: 100%;
+  height: 100%;
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: var(--row-height);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  tab-size: 2;
+}
+
+.code-backdrop {
+  pointer-events: none;
+  overflow: visible;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  z-index: 0;
+}
+
+.code-source-line {
+  min-height: var(--row-height);
+  line-height: var(--row-height);
+  margin: 0 -12px;
+  padding: 0 12px;
+  border-bottom: 1px solid #edf0f4;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+.code-source-line:nth-child(odd),
+.line:nth-child(odd) {
+  background: #e8f7d9;
+}
+
+.code-source-line:nth-child(even),
+.line:nth-child(even) {
+  background: #BCE1CF;
+}
+
+.code-input {
+  outline: none;
+  overflow: auto;
+  background: transparent;
+  color: #1f2933;
+  caret-color: #111827;
+  z-index: 1;
+}
+
+.code-edit-line {
+  min-height: var(--row-height);
+  line-height: var(--row-height);
+  margin: 0 -12px;
+  padding: 0 12px;
+  border-bottom: 1px solid #edf0f4;
+}
+
+.mark {
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  border-radius: 3px;
+}
+
+.mark-error {
+  background: rgba(255, 92, 92, 0.34);
+  box-shadow: inset 0 -2px 0 rgba(190, 18, 60, 0.6);
+}
+
+.mark-selected {
+  background: rgba(72, 151, 255, 0.28);
+  box-shadow: inset 0 -2px 0 rgba(37, 99, 235, 0.55);
+}
+
+.preview {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: #fff;
+}
+
+.line {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  min-height: var(--row-height);
+  border-bottom: 1px solid #edf0f4;
+}
+
+.lineno {
+  min-height: var(--row-height);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 8px 0 0;
+  line-height: var(--row-height);
+  color: #7b8794;
+  background: transparent;
+  border-right: 1px solid #d9dee6;
+  user-select: none;
+}
+
+.line-content {
+  min-width: 0;
+  min-height: var(--row-height);
+  line-height: var(--row-height);
+  padding: 0 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.char,
+.annotation-run {
+  cursor: pointer;
+  user-select: none;
+}
+
+.char {
+  display: inline-block;
+  min-width: 0.5em;
+  height: var(--row-height);
+  padding-top: var(--ruby-space);
+  line-height: var(--text-row-height);
+  vertical-align: top;
+}
+
+.selected {
+  background: #cce5ff;
+}
+
+.annotation-run {
+  display: inline-block;
+  position: relative;
+  height: var(--row-height);
+  padding-top: var(--ruby-space);
+  line-height: var(--text-row-height);
+  vertical-align: top;
+  border-radius: 3px;
+  margin: 0;
+}
+
+.annotation-base {
+  display: inline;
+  line-height: inherit;
+}
+
+.annotation-base-char {
+  display: inline-block;
+  min-width: 0.5em;
+  height: var(--text-row-height);
+  line-height: var(--text-row-height);
+  vertical-align: top;
+}
+
+.annotation-text {
+  position: absolute;
+  left: 50%;
+  bottom: var(--text-row-height);
+  width: max-content;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  text-align: center;
+  line-height: 1.2;
+  pointer-events: none;
+}
+
+.editor {
+  display: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  border-top: 1px solid #cfd6df;
+  padding: 10px 12px;
+  background: #fbfcfd;
+  font-size: 14px;
+}
+
+.editor b {
+  color: #1d4ed8;
+}
+
+.editor button {
+  height: 30px;
+  border: 1px solid #9aa6b2;
+  border-radius: 4px;
+  background: #fff;
+  padding: 0 10px;
+  font-family: var(--font);
+  cursor: pointer;
+}
+
+.editor button:hover {
+  background: #f2f6fb;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<div class="header">
+  <div>コード表示版</div>
+  <div>プレビュー・編集</div>
+</div>
+
+<div class="toolbar">
+  <label>フォント：
+    <select onchange="setFont(this.value)">
+      <option>Meiryo</option>
+      <option>MS Mincho</option>
+      <option>Yu Mincho</option>
+    </select>
+  </label>
+  <span class="validation" id="validation"></span>
+</div>
+
+<div class="main">
+
+<div class="panel">
+  <div class="code-editor" id="codeEditor">
+    <pre class="code-backdrop" id="codeBackdrop" aria-hidden="true"></pre>
+    <div class="code-input" id="code" contenteditable="true" spellcheck="false"></div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="preview" id="preview"></div>
+</div>
+
+</div>
+
+<div class="editor" id="editor">
+  <span>対象：<b id="sel"></b></span>
+  <label>ルビ：<input id="ann"></label>
+  <label>カラー：
+    <select id="style">
+      <option>Default</option>
+      <option>RedBold</option>
+      <option>BlueBold</option>
+    </select>
+  </label>
+  <label>サイズ：<input id="scale" type="number" step="0.1" value="0.5"></label>
+  <button onclick="apply()">確認</button>
+  <button onclick="remove()">クリア</button>
+  <button onclick="undo()">キャンセル</button>
+  <button onclick="redo()">やり直す</button>
+</div>
+
+</div>
+
+<script>
+let ast = [];
+let selected = null;
+let history = [];
+let future = [];
+let validationIssues = [];
+let syncingScroll = false;
+
+const code = document.getElementById("code");
+const codeEditor = document.getElementById("codeEditor");
+const codeBackdrop = document.getElementById("codeBackdrop");
+const preview = document.getElementById("preview");
+const validation = document.getElementById("validation");
+const editor = document.getElementById("editor");
+const sel = document.getElementById("sel");
+const ann = document.getElementById("ann");
+const style = document.getElementById("style");
+const scale = document.getElementById("scale");
+
+Object.defineProperty(code, "value", {
+  get() {
+    return readCodeInputText();
+  },
+  set(value) {
+    renderCodeInput(normalizeCodeText(value));
+  }
+});
+
+function setFont(f) {
+  document.documentElement.style.setProperty("--font", `"${f}", serif`);
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function normalizeCodeText(text) {
+  return String(text ?? "").replace(/\r\n?/g, "\n");
+}
+
+function renderCodeInput(text) {
+  const lines = normalizeCodeText(text).split("\n");
+  code.innerHTML = lines.map(line => {
+    return `<div class="code-edit-line">${line ? escapeHtml(line) : "<br>"}</div>`;
+  }).join("");
+}
+
+function readCodeInputText() {
+  const lines = code.querySelectorAll(".code-edit-line");
+  if (!lines.length) {
+    return normalizeCodeText(code.innerText).replace(/\n$/, "");
+  }
+
+  return Array.from(lines).map(line => line.textContent || "").join("\n");
+}
+
+function getOffsetInNode(root, node, offset) {
+  const range = document.createRange();
+  range.selectNodeContents(root);
+  range.setEnd(node, offset);
+  return range.toString().length;
+}
+
+function getCodeSelectionOffsets() {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount || !code.contains(sel.anchorNode)) {
+    const end = code.value.length;
+    return { start: end, end };
+  }
+
+  const range = sel.getRangeAt(0);
+  const start = getCodeOffsetFromPoint(range.startContainer, range.startOffset);
+  const end = getCodeOffsetFromPoint(range.endContainer, range.endOffset);
+  return { start: Math.min(start, end), end: Math.max(start, end) };
+}
+
+function getCodeCaretOffset() {
+  return getCodeSelectionOffsets().start;
+}
+
+function getCodeOffsetFromPoint(node, offset) {
+  const lines = Array.from(code.querySelectorAll(".code-edit-line"));
+  let total = 0;
+
+  for (const line of lines) {
+    if (line.contains(node)) {
+      return total + getOffsetInNode(line, node, offset);
+    }
+    total += (line.textContent || "").length + 1;
+  }
+
+  return Math.max(0, code.value.length);
+}
+
+function setCodeCaretOffset(offset) {
+  const sel = window.getSelection();
+  if (!sel) return;
+
+  const lines = Array.from(code.querySelectorAll(".code-edit-line"));
+  let remaining = Math.max(0, offset);
+  let targetLine = lines[lines.length - 1];
+  let targetOffset = (targetLine?.textContent || "").length;
+
+  for (const line of lines) {
+    const textLength = (line.textContent || "").length;
+    if (remaining <= textLength) {
+      targetLine = line;
+      targetOffset = remaining;
+      break;
+    }
+    remaining -= textLength + 1;
+  }
+
+  if (!targetLine) return;
+
+  if (!targetLine.firstChild || targetLine.firstChild.nodeName === "BR") {
+    targetLine.textContent = "";
+    targetLine.appendChild(document.createTextNode(""));
+  }
+
+  const node = targetLine.firstChild;
+  const range = document.createRange();
+  range.setStart(node, Math.min(targetOffset, node.textContent.length));
+  range.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+function replaceCodeSelection(text) {
+  const value = code.value;
+  const { start, end } = getCodeSelectionOffsets();
+  const insert = normalizeCodeText(text);
+  code.value = value.slice(0, start) + insert + value.slice(end);
+  setCodeCaretOffset(start + insert.length);
+  handleCodeChanged();
+}
+
+function parseAttrs(raw) {
+  return {
+    annotation: /annotation="([^"]*)"/.exec(raw)?.[1] || "",
+    textstyle: /textstyle="([^"]*)"/.exec(raw)?.[1] || "Default",
+    scale: /annotationfontscale="([^"]*)"/.exec(raw)?.[1] || "0.5"
+  };
+}
+
+function latestStyle(stack) {
+  for (let i = stack.length - 1; i >= 0; i--) {
+    if (stack[i].kind === "style") return stack[i].tag;
+  }
+  return null;
+}
+
+function appendParsedText(parts, stack, text, sourceStart) {
+  if (!text) return;
+
+  const activeSpan = stack.length ? stack[stack.length - 1] : null;
+  if (activeSpan?.kind === "span") {
+    if (activeSpan.textStart == null) activeSpan.textStart = sourceStart;
+    activeSpan.text += text;
+    activeSpan.textEnd = sourceStart + text.length;
+    return;
+  }
+
+  const activeStyle = latestStyle(stack);
+  const part = {
+    text,
+    sourceStart,
+    sourceEnd: sourceStart + text.length,
+    textStart: sourceStart,
+    textEnd: sourceStart + text.length
+  };
+
+  if (activeStyle) {
+    part.type = "style";
+    part.tag = activeStyle;
+  }
+
+  const last = parts[parts.length - 1];
+  if (last && last.type === part.type && last.tag === part.tag && last.sourceEnd === part.sourceStart) {
+    last.text += part.text;
+    last.sourceEnd = part.sourceEnd;
+    last.textEnd = part.textEnd;
+  } else {
+    parts.push(part);
+  }
+}
+
+function parseLine(line, lineStart) {
+  const parts = [];
+  const stack = [];
+  const tagRegex = /<[^>\n]*>/g;
+  let last = 0;
+  let m;
+
+  while ((m = tagRegex.exec(line))) {
+    const tag = m[0];
+    const absStart = lineStart + m.index;
+    const absEnd = absStart + tag.length;
+
+    appendParsedText(parts, stack, line.slice(last, m.index), lineStart + last);
+
+    if (tag === "<RedBold>" || tag === "<BlueBold>") {
+      stack.push({ kind: "style", tag: tag.slice(1, -1), sourceStart: absStart });
+    } else if (/^<span\b/.test(tag)) {
+      stack.push({
+        kind: "span",
+        attrs: parseAttrs(tag),
+        sourceStart: absStart,
+        openingEnd: absEnd,
+        text: "",
+        textStart: null,
+        textEnd: null
+      });
+    } else if (tag === "</>") {
+      const item = stack.pop();
+      if (item?.kind === "span") {
+        parts.push({
+          type: "span",
+          text: item.text,
+          annotation: item.attrs.annotation,
+          textstyle: item.attrs.textstyle,
+          scale: item.attrs.scale,
+          sourceStart: item.sourceStart,
+          sourceEnd: absEnd,
+          textStart: item.textStart ?? item.openingEnd,
+          textEnd: item.textEnd ?? item.openingEnd
+        });
+      }
+    } else {
+      appendParsedText(parts, stack, tag, absStart);
+    }
+
+    last = m.index + tag.length;
+  }
+
+  appendParsedText(parts, stack, line.slice(last), lineStart + last);
+  return { parts };
+}
+
+// ===== 解析 =====
+function parse(text) {
+  let lineStart = 0;
+
+  return text.split("\n").map(line => {
+    const parsed = parseLine(line, lineStart);
+    lineStart += line.length + 1;
+    return parsed;
+  });
+}
+
+// ===== 生成 =====
+function gen() {
+  return ast.map(line =>
+    line.parts.map(p => {
+      if (!p.type) return p.text;
+      if (p.type === "span") {
+        return `<span textstyle="${p.textstyle}" annotationfontscale="${p.scale}" annotation="${p.annotation}">${p.text}</>`;
+      }
+      if (p.type === "style") return `<${p.tag}>${p.text}</>`;
+      return p.text || "";
+    }).join("")
+  ).join("\n");
+}
+
+function textStyleCss(name) {
+  if (name === "RedBold") return "color:red;font-weight:bold;";
+  if (name === "BlueBold") return "color:blue;font-weight:bold;";
+  return "";
+}
+
+function isSelectedPart(i, j) {
+  return selected && selected.i === i && selected.j === j;
+}
+
+function isSelectedChar(i, j, k) {
+  return isSelectedPart(i, j) && k >= selected.start && k <= selected.end;
+}
+
+// ===== 渲染 =====
+function render() {
+  preview.innerHTML = ast.map((line, i) => {
+    let content = line.parts.map((p, j) => {
+      if (p.type === "span") {
+        const css = textStyleCss(p.textstyle);
+        const cls = isSelectedPart(i, j) ? "selected" : "";
+        const base = p.text.split("").map(ch => `<span class="annotation-base-char">${escapeHtml(ch)}</span>`).join("");
+
+        return `<span class="annotation-run ${cls}" data-i="${i}" data-j="${j}" style="${css}" onclick="edit(${i},${j})"><span class="annotation-base">${base}</span><span class="annotation-text" style="font-size:${escapeHtml(p.scale)}em">${escapeHtml(p.annotation)}</span></span>`;
+      }
+
+      if (p.type === "style") {
+        const css = textStyleCss(p.tag);
+        return p.text.split("").map((ch, k) => charHtml(ch, i, j, k, css)).join("");
+      }
+
+      return p.text.split("").map((ch, k) => charHtml(ch, i, j, k, "")).join("");
+    }).join("");
+
+    return `<div class="line">
+      <div class="lineno">${i + 1}</div>
+      <div class="line-content">${content}</div>
+    </div>`;
+  }).join("");
+}
+
+function charHtml(ch, i, j, k, css) {
+  const cls = isSelectedChar(i, j, k) ? "char selected" : "char";
+  return `<span class="${cls}"
+    data-i="${i}" data-j="${j}" data-k="${k}"
+    style="${css}"
+    onmousedown="start(event,${i},${j},${k})"
+    onmouseover="move(${i},${j},${k})"
+    onmouseup="end(event,${i},${j},${k})"
+  >${escapeHtml(ch)}</span>`;
+}
+
+// ===== 选区 =====
+let startPos = null;
+
+function start(event, i, j, k) {
+  event.preventDefault();
+  startPos = { i, j, k };
+  selected = { i, j, start: k, end: k, text: ast[i].parts[j].text.slice(k, k + 1) };
+  updatePreviewSelection();
+  updateCodeHighlights();
+}
+
+function move(i, j, k) {
+  if (!startPos) return;
+  if (startPos.i !== i || startPos.j !== j) return;
+
+  const p = ast[i].parts[j];
+  const s = Math.min(startPos.k, k);
+  const e = Math.max(startPos.k, k);
+  selected = { i, j, start: s, end: e, text: p.text.slice(s, e + 1) };
+  updatePreviewSelection();
+  updateCodeHighlights();
+}
+
+function end(event, i, j, k) {
+  event.preventDefault();
+  if (!startPos) return;
+
+  let { i: si, j: sj, k: sk } = startPos;
+  startPos = null;
+
+  if (si !== i || sj !== j) {
+    alert("暂不支持跨块选择");
+    selected = null;
+    render();
+    updateCodeHighlights();
+    return;
+  }
+
+  if (sk > k) [sk, k] = [k, sk];
+
+  const p = ast[i].parts[j];
+  const text = p.text.slice(sk, k + 1);
+  selected = { i, j, start: sk, end: k, text };
+  openEditor(text, p);
+  render();
+  updateCodeHighlights();
+}
+
+function updatePreviewSelection() {
+  document.querySelectorAll(".char.selected, .annotation-run.selected").forEach(el => {
+    el.classList.remove("selected");
+  });
+
+  if (!selected) return;
+
+  const p = ast[selected.i]?.parts[selected.j];
+  if (!p) return;
+
+  if (p.type === "span") {
+    const annotation = document.querySelector(`.annotation-run[data-i="${selected.i}"][data-j="${selected.j}"]`);
+    if (annotation) annotation.classList.add("selected");
+    return;
+  }
+
+  document.querySelectorAll(".char").forEach(el => {
+    if (+el.dataset.i !== selected.i || +el.dataset.j !== selected.j) return;
+
+    const k = +el.dataset.k;
+    if (k >= selected.start && k <= selected.end) {
+      el.classList.add("selected");
+    }
+  });
+}
+
+// ===== 编辑 =====
+function openEditor(t, part) {
+  editor.style.display = "flex";
+  sel.innerText = t;
+
+  if (part) {
+    ann.value = part.annotation || "";
+    style.value = part.type === "style" ? part.tag : (part.textstyle || "Default");
+    scale.value = part.scale || "0.5";
+  }
+}
+
+function edit(i, j) {
+  const p = ast[i].parts[j];
+  selected = { i, j, start: 0, end: Math.max(0, p.text.length - 1), text: p.text };
+  openEditor(p.text, p);
+  render();
+  updateCodeHighlights();
+}
+
+// ===== 应用 =====
+function apply() {
+  if (!selected) return;
+
+  const { i, j, start, end } = selected;
+  const p = ast[i]?.parts[j];
+  if (!p) return;
+
+  const before = p.text.slice(0, start);
+  const target = p.text.slice(start, end + 1);
+  const after = p.text.slice(end + 1);
+  const arr = [];
+
+  if (before) arr.push(cloneTextPart(p, before));
+
+  const newSpanIndex = j + arr.length;
+  arr.push({
+    type: "span",
+    text: target,
+    annotation: ann.value,
+    textstyle: style.value,
+    scale: scale.value
+  });
+
+  if (after) arr.push(cloneTextPart(p, after));
+
+  ast[i].parts.splice(j, 1, ...arr);
+  selected = { i, j: newSpanIndex, start: 0, end: Math.max(0, target.length - 1), text: target };
+  sync();
+}
+
+function cloneTextPart(p, text) {
+  if (p.type === "style") return { type: "style", tag: p.tag, text };
+  return { text };
+}
+
+// ===== 删除 =====
+function remove() {
+  if (!selected) return;
+
+  const p = ast[selected.i]?.parts[selected.j];
+  if (!p || p.type !== "span") return;
+
+  ast[selected.i].parts.splice(selected.j, 1, { text: p.text });
+  selected = null;
+  sync();
+}
+
+// ===== 规范校验 =====
+function validateDsl(text) {
+  const issues = [];
+
+  const addIssue = (start, end, message) => {
+    issues.push({
+      start: Math.max(0, start),
+      end: Math.max(start + 1, end),
+      message
+    });
+  };
+
+  for (const m of text.matchAll(/ {2,}/g)) {
+    addIssue(m.index, m.index + m[0].length, "スペース連続入力");
+  }
+
+  const tagRegex = /<[^>\n]*>/g;
+  const stack = [];
+  let m;
+
+  while ((m = tagRegex.exec(text))) {
+    const tag = m[0];
+    const start = m.index;
+    const end = start + tag.length;
+
+    if (tag === "</>") {
+      if (!stack.length) {
+        addIssue(start, end, "対応する開きタグなし");
+      } else {
+        stack.pop();
+      }
+      continue;
+    }
+
+    if (/^<span\b/.test(tag)) {
+      const ok = /^<span textstyle="[^"]*" annotationfontscale="[^"]*" annotation="[^"]*">$/.test(tag);
+      if (!ok) {
+        addIssue(start, end, "タグ順番ミス　正：textstyle、annotationfontscale、annotation");
+      }
+
+      if (stack.length) {
+        addIssue(start, end, "タグの重ね不可");
+      }
+
+      stack.push({ kind: "span", start, end, tag, textStart: end, textEnd: end });
+      continue;
+    }
+
+    if (/^<[A-Za-z][A-Za-z0-9_:-]*\b[^>]*>$/.test(tag)) {
+      if (stack.length) {
+        addIssue(start, end, "タグの重ね");
+      }
+      stack.push({ kind: "tag", start, end, tag });
+    }
+  }
+
+  for (const item of stack) {
+    addIssue(item.start, item.end, "対応する閉じタグ</>なし");
+  }
+
+  return issues;
+}
+
+// ===== 左侧高亮 =====
+function selectedSourceRange() {
+  if (!selected) return null;
+
+  const p = ast[selected.i]?.parts[selected.j];
+  if (!p || p.textStart == null) return null;
+
+  return {
+    start: p.textStart + selected.start,
+    end: p.textStart + selected.end + 1
+  };
+}
+
+function updateCodeHighlights() {
+  validationIssues = validateDsl(code.value);
+  const marks = validationIssues.map(issue => ({
+    start: issue.start,
+    end: issue.end,
+    cls: "mark-error",
+    message: issue.message
+  }));
+
+  const selRange = selectedSourceRange();
+  if (selRange && selRange.end > selRange.start) {
+    marks.push({
+      start: selRange.start,
+      end: selRange.end,
+      cls: "mark-selected",
+      message: "選択中"
+    });
+  }
+
+  codeBackdrop.innerHTML = buildMarkedHtml(code.value, marks);
+  validation.textContent = validationIssues.length ? ` ${validationIssues.length} 箇所ミス：${validationIssues[0].message}` : "";
+  validation.title = validationIssues.map(issue => issue.message).join("\n");
+  scheduleSourceLineSync();
+  syncBackdropScroll();
+}
+
+function scheduleSourceLineSync() {
+  syncSourceLineHeights();
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(syncSourceLineHeights);
+  }
+}
+
+function syncSourceLineHeights() {
+  const sourceLines = codeBackdrop.querySelectorAll(".code-source-line");
+  const editLines = code.querySelectorAll(".code-edit-line");
+  const previewLines = preview.querySelectorAll(".line");
+
+  sourceLines.forEach((line, index) => {
+    line.style.height = "";
+    if (editLines[index]) editLines[index].style.height = "";
+    if (previewLines[index]) previewLines[index].style.height = "";
+  });
+
+  sourceLines.forEach((line, index) => {
+    const target = previewLines[index];
+    const editLine = editLines[index];
+    const sourceHeight = line.getBoundingClientRect().height;
+    const editHeight = editLine ? editLine.getBoundingClientRect().height : 0;
+    const previewHeight = target ? target.getBoundingClientRect().height : 0;
+    const height = Math.max(sourceHeight, editHeight, previewHeight);
+
+    if (height) {
+      line.style.height = `${height}px`;
+      if (editLine) editLine.style.height = `${height}px`;
+      if (target) target.style.height = `${height}px`;
+    }
+  });
+}
+
+function buildMarkedHtml(text, marks) {
+  const lines = text.split("\n");
+  let offset = 0;
+  const html = lines.map(line => {
+    const lineHtml = buildMarkedLineHtml(line, marks, offset);
+    offset += line.length + 1;
+    return `<div class="code-source-line">${lineHtml || " "}</div>`;
+  }).join("");
+
+  return html;
+}
+
+function buildMarkedLineHtml(line, marks, offset) {
+  const lineStart = offset;
+  const lineEnd = offset + line.length;
+  const points = new Set([lineStart, lineEnd]);
+
+  for (const mark of marks) {
+    if (mark.end < lineStart || mark.start > lineEnd) continue;
+    points.add(Math.max(lineStart, Math.min(lineEnd, mark.start)));
+    points.add(Math.max(lineStart, Math.min(lineEnd, mark.end)));
+  }
+
+  const sorted = Array.from(points).sort((a, b) => a - b);
+  let html = "";
+
+  for (let idx = 0; idx < sorted.length - 1; idx++) {
+    const start = sorted[idx];
+    const end = sorted[idx + 1];
+    const segment = line.slice(start - offset, end - offset);
+    const active = marks.filter(mark => mark.start < end && mark.end > start);
+
+    if (!active.length) {
+      html += escapeHtml(segment);
+      continue;
+    }
+
+    const cls = ["mark", ...new Set(active.map(mark => mark.cls))].join(" ");
+    const title = escapeHtml(active.map(mark => mark.message).join("；"));
+    html += `<span class="${cls}" title="${title}">${escapeHtml(segment)}</span>`;
+  }
+
+  return html;
+}
+
+function syncBackdropScroll() {
+  codeBackdrop.style.transform = `translate(${-code.scrollLeft}px, ${-code.scrollTop}px)`;
+}
+
+function syncScroll(source) {
+  if (syncingScroll) return;
+  syncingScroll = true;
+
+  if (source === code) {
+    preview.scrollTop = code.scrollTop;
+  } else {
+    code.scrollTop = preview.scrollTop;
+  }
+
+  syncBackdropScroll();
+  syncingScroll = false;
+}
+
+// ===== 同步 =====
+function sync() {
+  code.value = gen();
+  saveHistory();
+  ast = parse(code.value);
+  render();
+  updateCodeHighlights();
+}
+
+// ===== Undo =====
+function saveHistory() {
+  if (history[history.length - 1] === code.value) return;
+  history.push(code.value);
+  future = [];
+}
+
+function undo() {
+  if (history.length <= 1) return;
+  future.push(history.pop());
+  code.value = history[history.length - 1];
+  selected = null;
+  ast = parse(code.value);
+  render();
+  updateCodeHighlights();
+}
+
+function redo() {
+  if (!future.length) return;
+  const v = future.pop();
+  history.push(v);
+  code.value = v;
+  selected = null;
+  ast = parse(v);
+  render();
+  updateCodeHighlights();
+}
+
+function handleCodeChanged() {
+  selected = null;
+  ast = parse(code.value);
+  render();
+  updateCodeHighlights();
+}
+
+// 输入监听
+code.addEventListener("input", () => {
+  const caret = getCodeCaretOffset();
+  const value = code.value;
+  renderCodeInput(value);
+  setCodeCaretOffset(Math.min(caret, value.length));
+  handleCodeChanged();
+});
+
+code.addEventListener("paste", event => {
+  event.preventDefault();
+  const text = event.clipboardData?.getData("text/plain") || "";
+  replaceCodeSelection(text);
+});
+
+code.addEventListener("scroll", () => syncScroll(code));
+preview.addEventListener("scroll", () => syncScroll(preview));
+window.addEventListener("resize", scheduleSourceLineSync);
+
+if (typeof ResizeObserver === "function") {
+  const rowResizeObserver = new ResizeObserver(scheduleSourceLineSync);
+  rowResizeObserver.observe(codeEditor);
+  rowResizeObserver.observe(preview);
+}
+
+// 初始化
+code.value = "<RedBold>埋骨の地</>";
+saveHistory();
+ast = parse(code.value);
+render();
+updateCodeHighlights();
+</script>
+
+</body>
+</html>
